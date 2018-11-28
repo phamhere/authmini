@@ -1,29 +1,35 @@
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const session = require("express-session");
+const KnexSessionStore = require("connect-session-knex")(session);
 
 const db = require("./database/dbConfig.js");
 
 const server = express();
 
+const sessionConfig = {
+  name: "monkey",
+  secret: "as;ldfnvjioamsdapon3pamdpo",
+  cookie: {
+    maxAge: 1000 * 60 * 10,
+    secure: false // in production you want this to be true, only set over https
+  },
+  httpOnly: true, // no js can touch this cookie
+  resave: false,
+  saveUninitialized: false,
+  store: new KnexSessionStore({
+    tablename: "sessions",
+    sidfieldname: "sid",
+    knex: db,
+    createtable: true,
+    clearInterval: 1000 * 60 * 60
+  })
+};
+
+server.use(session(sessionConfig)); // wires up session management
 server.use(express.json());
 server.use(cors());
-
-const generateToken = user => {
-  const payload = {
-    subject: user.id,
-    username: user.username,
-    roles: ['sales', 'marketing'] 
-  };
-  const secret = process.env.JWT_SECRET;
-  const options = {
-    expiresIn: '5m'
-  }
-  return jwt.sign(payload, secret, options);
-}
 
 server.post("/api/login", (req, res) => {
   // grab username and password from body
@@ -34,13 +40,27 @@ server.post("/api/login", (req, res) => {
     .then(user => {
       if (user && bcrypt.compareSync(creds.password, user.password)) {
         // user exists by that username and passwords match
-        const token = generateToken(user);
-        res.status(200).json({ message: "Welcome!", token });
+        req.session.userId = user.id;
+        res.status(200).json({ message: "Welcome!" });
       } else {
         res.status(401).json({ message: "You shall not pass!" });
       }
     })
     .catch(err => res.status(500).json(err));
+});
+
+server.get("/api/logout", (req, res) => {
+  if (req.session) {
+    req.session.destroy(err => {
+      if (err) {
+        res.send("You can never leave.");
+      } else {
+        res.send("Bye!");
+      }
+    });
+  } else {
+    res.end();
+  }
 });
 
 server.post("/api/register", (req, res) => {
@@ -67,35 +87,19 @@ server.get("/", (req, res) => {
 });
 
 const protected = (req, res, next) => {
-  const token = req.headers.authorization;
-  if (token) {
-    jwt.verify(token, process.env.JWT_SECRET, (err, decodedToken) => {
-      if (err) {
-        res.status(401).json({message: "Token is invalid."});
-      } else {
-        req.decodedToken = decodedToken;
-        next();
-      }
-    })
+  if (req.session && req.session.userId) {
+    next();
   } else {
-    res.status(401).json({message: "No token provided, so get lost."});
+    res.status(401).json({ message: "You shall not pass!" });
   }
 };
 
-const checkRole = role => {
-  return function(req, res, next) {
-    if (req.decodedToken && req.decodedToken.roles.includes(role)) {
-      next();
-    } else {
-      res.status(403).json({message: "You don't have access to this resource."});
-    }
-  }
-}
-
 // protect this route, only authenticated users should see it
-server.get("/api/users", protected, checkRole('sales'), (req, res) => {
+server.get("/api/users", protected, (req, res) => {
   db("users")
     .select("id", "username")
+    .where({ id: req.session.userId })
+    .first()
     .then(users => {
       res.json(users);
     })
