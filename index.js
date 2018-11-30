@@ -16,14 +16,14 @@ const generateToken = user => {
   const payload = {
     subject: user.id,
     username: user.username,
-    roles: ['sales', 'marketing'] 
+    roles: ["sales", "marketing"]
   };
   const secret = process.env.JWT_SECRET;
   const options = {
-    expiresIn: '5m'
-  }
+    expiresIn: "5m"
+  };
   return jwt.sign(payload, secret, options);
-}
+};
 
 server.post("/api/login", (req, res) => {
   // grab username and password from body
@@ -35,7 +35,7 @@ server.post("/api/login", (req, res) => {
       if (user && bcrypt.compareSync(creds.password, user.password)) {
         // user exists by that username and passwords match
         const token = generateToken(user);
-        res.status(200).json({ message: "Welcome!", token });
+        res.status(200).json({ message: "Welcome!", token: token });
       } else {
         res.status(401).json({ message: "You shall not pass!" });
       }
@@ -71,14 +71,14 @@ const protected = (req, res, next) => {
   if (token) {
     jwt.verify(token, process.env.JWT_SECRET, (err, decodedToken) => {
       if (err) {
-        res.status(401).json({message: "Token is invalid."});
+        res.status(401).json({ message: "Token is invalid." });
       } else {
         req.decodedToken = decodedToken;
         next();
       }
-    })
+    });
   } else {
-    res.status(401).json({message: "No token provided, so get lost."});
+    res.status(401).json({ message: "No token provided, so get lost." });
   }
 };
 
@@ -87,13 +87,15 @@ const checkRole = role => {
     if (req.decodedToken && req.decodedToken.roles.includes(role)) {
       next();
     } else {
-      res.status(403).json({message: "You don't have access to this resource."});
+      res
+        .status(403)
+        .json({ message: "You don't have access to this resource." });
     }
-  }
-}
+  };
+};
 
 // protect this route, only authenticated users should see it
-server.get("/api/users", protected, checkRole('sales'), (req, res) => {
+server.get("/api/users", protected, checkRole("sales"), (req, res) => {
   db("users")
     .select("id", "username")
     .then(users => {
